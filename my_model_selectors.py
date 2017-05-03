@@ -75,9 +75,26 @@ class SelectorBIC(ModelSelector):
         :return: GaussianHMM object
         """
         warnings.filterwarnings("ignore", category=DeprecationWarning)
+        pick = None
+        min_score = float('inf')
+        for i in range(self.min_n_components, self.max_n_components + 1):
+            try:
+                hmm_model = GaussianHMM(n_components=i, covariance_type="diag", n_iter=1000,
+                                        random_state=self.random_state, verbose=False).fit(self.X,
+                                                                                           self.lengths)
+                logL = hmm_model.score(self.X, self.lengths)
+                p = i * i + i * len(self.X[0]) * 2
+                score = -2 * logL + p * np.log(len(self.X))
+            except:
+                score = float('inf')
 
-        # TODO implement model selection based on BIC scores
-        raise NotImplementedError
+            if score < min_score:
+                min_score = score
+                pick = i
+        if pick is None:
+            return None
+        else:
+            return self.base_model(pick)
 
 
 class SelectorDIC(ModelSelector):
@@ -91,10 +108,26 @@ class SelectorDIC(ModelSelector):
 
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
+        pick = None
+        max_score = float('-inf')
+        for i in range(self.min_n_components, self.max_n_components + 1):
+            try:
+                hmm_model = GaussianHMM(n_components=i, covariance_type="diag", n_iter=1000,
+                                        random_state=self.random_state, verbose=False).fit(self.X,
+                                                                                           self.lengths)
+                s_i = hmm_model.score(self.X, self.lengths)
+                s_rest = [hmm_model.score(test_x, length) for word, (test_x, length) in self.hwords.items() if word != self.this_word]
+                score = s_i - 1/(len(s_rest) - 1) * np.sum(s_rest)
+            except:
+                score = float('-inf')
 
-        # TODO implement model selection based on DIC scores
-        raise NotImplementedError
-
+            if score > max_score:
+                max_score = score
+                pick = i
+        if pick is None:
+            return None
+        else:
+            return self.base_model(pick)
 
 class SelectorCV(ModelSelector):
     ''' select best model based on average log Likelihood of cross-validation folds
@@ -104,5 +137,27 @@ class SelectorCV(ModelSelector):
     def select(self):
         warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-        # TODO implement model selection using CV
-        raise NotImplementedError
+        split_method = KFold()
+        pick = None
+        max_score = float('-inf')
+        for i in range(self.min_n_components, self.max_n_components + 1):
+            total = 0
+            count = 0
+            for cv_train_index, cv_test_index in split_method.split(self.X):
+                try:
+                    hmm_model = GaussianHMM(n_components=i, covariance_type="diag", n_iter=1000,
+                                    random_state=self.random_state, verbose=False).fit(self.X[cv_train_index], len(cv_train_index))
+                    score = hmm_model.score(self.X[cv_test_index], len(cv_test_index))
+                except:
+                    score = 0
+
+                total += score
+                count += 1
+            average = total / count
+            if average > max_score:
+                max_score = average
+                pick = i
+        if pick is None:
+            return None
+        else:
+            return self.base_model(pick)
